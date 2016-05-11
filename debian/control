@@ -1,0 +1,28 @@
+Source: wiringx
+Priority: optional
+Maintainer: Maintainer: Josua Mayer <privacy@not.given>
+Build-Depends: debhelper (>= 9), cmake
+Standards-Version: 3.9.5
+Section: libs
+Homepage: http://wiringx.org/
+Vcs-Git: https://github.com/mxOBS/wiringX.git
+Vcs-Browser: https://github.com/mxOBS/wiringX
+
+Package: libwiringx-dev
+Section: libdevel
+Architecture: any
+Depends: libwiringx (= ${binary:Version}), ${misc:Depends}
+Description: Todo
+ T. O. D. O.
+
+Package: libwiringx
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Todo
+ T. O. D. O.
+
+Package: libwiringx-examples
+Architecture: any
+Depends: ${shlibs:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Description: Todo
+ T. O. D. O.
