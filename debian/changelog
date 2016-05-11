@@ -1,0 +1,11 @@
+wiringx (1.1) stable; urgency=medium
+
+  * misellaneous improvements
+
+ -- Josua Mayer <josua@linux>  Sun, 26 Feb 2017 18:07:24 +0100
+
+wiringx (1.0) unstable; urgency=low
+
+  * Initial Release.
+
+ -- Josua Mayer <josua@linux>  Wed, 11 May 2016 23:56:18 +0200
