@@ -81,9 +81,9 @@ int wiringXI2CWriteReg8(int, int, int);
 int wiringXI2CWriteReg16(int, int, int);
 int wiringXI2CSetup(const char *, int);
 
-int wiringXSPIGetFd(int channel);
-int wiringXSPIDataRW(int channel, unsigned char *data, int len);
-int wiringXSPISetup(int channel, int speed);
+int wiringXSPIGetFd(int device, int channel);
+int wiringXSPIDataRW(int device, int channel, unsigned char *data, int len);
+int wiringXSPISetup(int device, int channel, int speed);
 
 int wiringXSerialOpen(const char *, struct wiringXSerial_t);
 void wiringXSerialFlush(int);

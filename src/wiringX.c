@@ -69,10 +69,165 @@ struct spi_t {
 	int fd;
 } spi_t;
 
-static struct spi_t spi[2] = {
-	{ 0, 0, 0, 0, 0 },
-	{ 0, 0, 0, 0, 0 }
+/*
+ * Linked List for storing state of spi connections
+ * * Efficient for small number of active connections
+ * * Doesn't make any assumptions on device and channel numbers
+ */
+struct ll_spi_t {
+	int device;
+	int channel;
+	struct spi_t data;
+	struct ll_spi_t *next;
 };
+struct ll_spi_t *spi;
+
+/*
+ * look up state for given combination of device and channel number
+ * returns null-pointer on error
+ */
+struct spi_t *spi_get(int device, int channel) {
+	struct ll_spi_t *ptr = spi;
+	while(ptr != NULL && ptr->device != device && ptr->channel != channel) {
+		ptr = ptr->next;
+	}
+
+	if(ptr != NULL) {
+		return &ptr->data;
+	}
+
+	return NULL;
+}
+
+/*
+ * creates new state for given device channel combination and inserts it at the end
+ * makes sure to clear any existing state for the same connection
+ */
+struct spi_t *spi_new(int device, int channel) {
+	struct ll_spi_t *ptr = spi;
+	
+	/* list start */
+	if(ptr == NULL) {
+		ptr = calloc(sizeof(struct ll_spi_t), 1);
+		if(ptr == NULL) {
+			fprintf(stderr, "out of memory\n");
+			exit(EXIT_FAILURE);
+		}
+
+		ptr->device = device;
+		ptr->channel = channel;
+		ptr->next = NULL;
+
+		spi = ptr;
+		return &ptr->data;
+	}
+
+	/* find existing entry or end of list */
+	while(ptr->device != device && ptr->channel != channel && ptr->next != NULL) {
+		ptr = ptr->next;
+	}
+
+	/* existing entry */
+	if(ptr->device == device && ptr->channel == channel) {
+		/* close */
+		if(ptr->data.fd > 0) {
+			close(ptr->data.fd);
+		}
+
+		/* clear */
+		memset(&ptr->data, 0, sizeof(struct spi_t));
+
+		return &ptr->data;
+	}
+
+	/* end of list */
+	ptr->next = calloc(sizeof(struct ll_spi_t), 1);
+	ptr = ptr->next;
+	if(ptr == NULL) {
+		fprintf(stderr, "out of memory\n");
+		exit(EXIT_FAILURE);
+	}
+
+	ptr->device = device;
+	ptr->channel = channel;
+	ptr->next = NULL;
+	return &ptr->data;
+}
+
+/*
+ * delete state for given device channel combination
+ */
+void spi_delete(int device, int channel) {
+	struct ll_spi_t *ptr = spi, *prev;
+
+	/* empty list */
+	if(ptr == NULL) {
+		return;
+	}
+
+	/* list start */
+	if(ptr->device == device && ptr->channel == channel) {
+		/* replace HEAD */
+		spi = ptr->next;
+
+		/* close */
+		if(ptr->data.fd > 0) {
+			close(ptr->data.fd);
+		}
+
+		/* delete entry */
+		free(ptr);
+		return;
+	}
+
+	/* find existing entry or end of list */
+	prev = ptr;
+	ptr = ptr->next;
+	while(ptr != NULL && ptr->device != device && ptr->channel != channel) {
+		prev = ptr;
+		ptr = ptr->next;
+	}
+
+	/* somewhere in the list */
+	if(ptr->device == device && ptr->channel == channel) {
+		/* stitch list */
+		prev->next = ptr->next;
+
+		/* close */
+		if(ptr->data.fd > 0) {
+			close(ptr->data.fd);
+		}
+
+		/* delete entry */
+		free(ptr);
+		return;
+	}
+
+	/* end of list */
+	return;
+}
+
+/*
+ * Clear all states
+ */
+void spi_clear() {
+	struct ll_spi_t *ptr = spi, *prev;
+	while(ptr != NULL) {
+		/* close */
+		if(ptr->data.fd > 0) {
+			close(ptr->data.fd);
+		}
+
+		/* next */
+		prev = ptr;
+		ptr = ptr->next;
+
+		/* delete entry */
+		free(prev);
+	}
+	spi = NULL;
+}
+
 #endif
 
 #ifdef _WIN32
@@ -379,21 +534,30 @@ int wiringXI2CSetup(const char *path, int devId) {
 	return fd;
 }
 
-int wiringXSPIGetFd(int channel) {
-	return spi[channel & 1].fd;
+int wiringXSPIGetFd(int device, int channel) {
+	struct spi_t *state = spi_get(device, channel);
+	if(state == NULL) {
+		wiringXLog(LOG_ERR, "wiringX attempted to use unconfigured spi device %d, channel %d", device, channel);
+		return -1;
+	}
+	return state->fd;
 }
 
-int wiringXSPIDataRW(int channel, unsigned char *data, int len) {
-	struct spi_ioc_transfer tmp;
-	memset(&tmp, 0, sizeof(tmp));
-	channel &= 1;
+int wiringXSPIDataRW(int device, int channel, unsigned char *data, int len) {
+	struct spi_ioc_transfer tmp = {0};
+	struct spi_t *state = spi_get(device, channel);
+
+	if(state == NULL) {
+		wiringXLog(LOG_ERR, "wiringX attempted to use unconfigured spi device %d, channel %d", device, channel);
+		return -1;
+	}
 
 	tmp.tx_buf = (unsigned long)data;
 	tmp.rx_buf = (unsigned long)data;
 	tmp.len = len;
-	tmp.delay_usecs = spi[channel].delay;
-	tmp.speed_hz = spi[channel].speed;
-	tmp.bits_per_word = spi[channel].bits_per_word;
+	tmp.delay_usecs = state->delay;
+	tmp.speed_hz = state->speed;
+	tmp.bits_per_word = state->bits_per_word;
 #ifdef SPI_IOC_WR_MODE32
 	tmp.tx_nbits = 0;
 #endif
@@ -401,68 +565,72 @@ int wiringXSPIDataRW(int channel, unsigned char *data, int len) {
 	tmp.rx_nbits = 0;
 #endif
 
-	if(ioctl(spi[channel].fd, SPI_IOC_MESSAGE(1), &tmp) < 0) {
-		wiringXLog(LOG_ERR, "wiringX is unable to read/write from channel %d (%s)", channel, strerror(errno));
+	if(ioctl(state->fd, SPI_IOC_MESSAGE(1), &tmp) < 0) {
+		wiringXLog(LOG_ERR, "wiringX is unable to read/write from device %d, channel %d (%s)", device, channel, strerror(errno));
 		return -1;
 	}
 	return 0;
 }
 
-int wiringXSPISetup(int channel, int speed) {
-	const char *device = NULL;
+int wiringXSPISetup(int _device, int channel, int speed) {
+	// maximum length of path to spidev: "/dev/<max_filename_length>"
+	char device[5+NAME_MAX+1] = { 0 };
+	// pointer to spi state
+	struct spi_t *state = spi_new(_device, channel);
 
-	channel &= 1;
+	sprintf(device, "/dev/spidev%d.%d", _device, channel);
 
-	if(channel == 0) {
-		device = "/dev/spidev0.0";
-	} else {
-		device = "/dev/spidev0.1";
-	}
-
-	if((spi[channel].fd = open(device, O_RDWR)) < 0) {
+	if((state->fd = open(device, O_RDWR)) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to open SPI device %s (%s)", device, strerror(errno));
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	spi[channel].speed = speed;
+	state->speed = speed;
 
-	if(ioctl(spi[channel].fd, SPI_IOC_WR_MODE, &spi[channel].mode) < 0) {
+	if(ioctl(state->fd, SPI_IOC_WR_MODE, &state->mode) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to set write mode for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	if(ioctl(spi[channel].fd, SPI_IOC_RD_MODE, &spi[channel].mode) < 0) {
+	if(ioctl(state->fd, SPI_IOC_RD_MODE, &state->mode) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to set read mode for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	if(ioctl(spi[channel].fd, SPI_IOC_WR_BITS_PER_WORD, &spi[channel].bits_per_word) < 0) {
+	if(ioctl(state->fd, SPI_IOC_WR_BITS_PER_WORD, &state->bits_per_word) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to set write bits_per_word for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	if(ioctl(spi[channel].fd, SPI_IOC_RD_BITS_PER_WORD, &spi[channel].bits_per_word) < 0) {
+	if(ioctl(state->fd, SPI_IOC_RD_BITS_PER_WORD, &state->bits_per_word) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to set read bits_per_word for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	if(ioctl(spi[channel].fd, SPI_IOC_WR_MAX_SPEED_HZ, &spi[channel].speed) < 0) {
+	if(ioctl(state->fd, SPI_IOC_WR_MAX_SPEED_HZ, &state->speed) < 0) {
 		wiringXLog(LOG_ERR, "wiringX is unable to set write max_speed for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	if(ioctl(spi[channel].fd, SPI_IOC_RD_MAX_SPEED_HZ, &spi[channel].speed) < 0) {
+	if(ioctl(state->fd, SPI_IOC_RD_MAX_SPEED_HZ, &state->speed) < 0) {
 		wiringXLog(LOG_ERR, "wirignX is unable to set read max_speed for device %s (%s)", device, strerror(errno));
-		close(spi[channel].fd);
+		close(state->fd);
+		spi_delete(_device, channel);
 		return -1;
 	}
 
-	return spi[channel].fd;
+	return state->fd;
 }
 #endif
 
@@ -685,6 +853,7 @@ int wiringXSelectableFd(int gpio) {
 }
 
 int wiringXGC(void) {
+	spi_clear();
 	if(platform != NULL) {
 		platform->gc();
 		platform = NULL;
