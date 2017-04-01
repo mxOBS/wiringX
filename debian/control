@@ -12,17 +12,17 @@ Package: libwiringx-dev
 Section: libdevel
 Architecture: any
 Depends: libwiringx (= ${binary:Version}), ${misc:Depends}
-Description: Todo
- T. O. D. O.
+Description: Development files for libwiringx
+ Provides libraries and headers to create programs with libwiringx.
 
 Package: libwiringx
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: Todo
- T. O. D. O.
+Description: hacker-friendly I/O library
+ Provides a hacker-friendly library for direct I/O including GPIO, SPI, I2C and serial.
 
 Package: libwiringx-examples
 Architecture: any
 Depends: ${shlibs:Depends}, ${shlibs:Depends}, ${misc:Depends}
-Description: Todo
- T. O. D. O.
+Description: Examples for libwiringx
+ Provides example applications built with libwiringx.
