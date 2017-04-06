@@ -23,6 +23,6 @@ Description: hacker-friendly I/O library
 
 Package: libwiringx-examples
 Architecture: any
-Depends: ${shlibs:Depends}, ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Examples for libwiringx
  Provides example applications built with libwiringx.
